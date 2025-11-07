@@ -7,7 +7,11 @@ local Players = game:GetService("Players")
 local player = Players.LocalPlayer
 local wind = loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))()
 local REDisplaySystemMessage = RS.Packages._Index["sleitnick_net@0.2.0"].net["RE/DisplaySystemMessage"]
-
+local coinLabel = player.PlayerGui.Events.Frame.CurrencyCounter.Counter
+local rodValues = {}
+local rodMap = {}
+local SelectedRod = nil
+local autoBuyRodEnabled = false
 local autoEventEnabled = false
 local savedPosition = nil
 local savedCFrame = nil
@@ -20,6 +24,54 @@ local EventFacing = Vector3.new(-0.996, -0.000, -0.089)
 
 local function log(state, str_t, str_c)
     wind:Notify({ Title = str_t, Content = str_c, Icon = state and 'check' or 'x', Duration = 3 })
+end
+
+local function buyRod(int)
+    pcall(function()
+        RS.Packages._Index['sleitnick_net@0.2.0'].net['RF/PurchaseFishingRod']:InvokeServer(int)
+    end)
+end
+
+local function getRods()
+    local rods = {}
+    for _, item in pairs(require(RS.Items)) do 
+        if item.Data and item.Data.Type == 'Fishing Rods' and item.Price then
+            table.insert(rods, {
+                id = item.Data.Id,
+                name = item.Data.Name,
+                price = item.Price,
+                tier = item.Data.Tier or 0,
+                icon = item.Data.Icon
+            })
+        end 
+    end 
+    table.sort(rods, function(a, b) return a.price < b.price end)
+    return rods
+end
+
+local function frmt(num)
+    local f, uck = tostring(num)
+    while true do 
+        f, uck = string.gsub(f, "^(-?%d+)(%d%d%d)", '%1.%2')
+        if uck == 0 then break end
+    end 
+    return f 
+end
+
+local function parseCoin(text)
+    text = text:gsub(",", "")
+    if text:find("K") or text:find("k") then
+        local num = tonumber(text:match("[%d%.]+"))
+        return num * 1000
+    elseif text:find("M") or text:find("m") then
+        local num = tonumber(text:match("[%d%.]+"))
+        return num * 1000000
+    elseif text:find("B") or text:find("b") then
+        local num = tonumber(text:match("[%d%.]+"))
+        return num * 1000000000
+    else
+        return tonumber(text) or 0
+    end
 end
 
 local function saveCurrentPosition()
@@ -70,7 +122,7 @@ end)
 
 local window = wind:CreateWindow({
     Title = "Auto Event",
-    Icon = "sparkles",
+    Icon = "terminal",
     Author = "SatanScript",
     Size = UDim2.fromOffset(320, 280),
     Transparent = true,
@@ -83,7 +135,11 @@ local window = wind:CreateWindow({
 })
 
 local eventTab = window:Tab({ Title = 'Auto Event', Icon = 'sparkles', Locked = false })
-
+local shopTab = window:Tab({ Title = 'Shop', Icon = 'shopping-cart', Locked = false })
+window:SelectTab(1)
+Window:DisableTopbarButtons({
+    "Close"
+})
 local eventSection1 = eventTab:Section({
     Title = 'Event Settings',
     Icon = 'zap',
@@ -172,9 +228,58 @@ settings:Keybind({
     end
 })
 
-window:SelectTab(1)
-Window:DisableTopbarButtons({
-    "Close"
+local rodSection = shopTab:Section({
+    Title = 'Rods Shop',
+    Icon = 'package',
+    Opened = true 
+})
+
+for _, rod in ipairs(getRods()) do
+    local displayText = rod.name .. " | " .. frmt(rod.price)
+    table.insert(rodValues, displayText)
+    rodMap[displayText] = rod
+end
+
+rodSection:Dropdown({
+    Title = 'Select Rod',
+    Values = rodValues,
+    Value = "",
+    Multi = false,
+    AllowNone = true,
+    Callback = function(choice)
+        if choice and choice ~= "" then
+            SelectedRod = rodMap[choice]
+            log(true, 'SatanScript', 'Rod Selected : ' .. SelectedRod.name)
+        end
+    end
+})
+
+rodSection:Toggle({
+    Title = 'Auto Buy Selected Rod',
+    Icon = 'check',
+    type = 'Checkbox',
+    Callback = function(state)
+        autoBuyRodEnabled = state
+        log(state, 'Auto Buy', state and 'Auto Buy Rod Enabled!' or 'Auto Buy Rod Disabled!')
+    end
+})
+
+rodSection:Button({
+    Title = 'Buy Selected Rod',
+    Locked = false,
+    Callback = function()
+        if not SelectedRod then
+            log(false, 'SatanScript', 'Please Select A Rod First!')
+            return
+        end
+        local currentCoin = parseCoin(coinLabel.Text)
+        if currentCoin < SelectedRod.price then
+            log(false, 'SatanScript', 'You Coins Are Not Enough To Buy '.. SelectedRod.name)
+            return
+        end
+        buyRod(SelectedRod.id)
+        log(true, 'SatanScript', 'Buying ' .. SelectedRod.name)
+    end
 })
 
 task.spawn(function()
@@ -187,5 +292,19 @@ task.spawn(function()
                 eventStartTime = 0
             end
         end
+    end
+end)
+
+coinLabel:GetPropertyChangedSignal("Text"):Connect(function()
+    local currentCoin = parseCoin(coinLabel.Text)
+    if autoBuyBaitEnabled and SelectedBait and currentCoin >= SelectedBait.price then
+        buyBait(SelectedBait.id)
+        log(true, 'SatanScript', 'Bought Bait : ' .. SelectedBait.name)
+        task.wait(1)
+    end
+    if autoBuyRodEnabled and SelectedRod and currentCoin >= SelectedRod.price then
+        buyRod(SelectedRod.id)
+        log(true, 'SatanScript', 'Bought Rod : ' .. SelectedRod.name)
+        task.wait(1)
     end
 end)
